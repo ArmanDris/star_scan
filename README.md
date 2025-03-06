@@ -16,7 +16,7 @@ pub fn main() {
   let running_total_errors = star_scan(errors)
   io.println("Running total:")
   io.println(string.join(running_total_errors), ", ")
-  # -> 5, 6, 16, 22
+  // -> 5, 6, 16, 22
 }
 ```
 
