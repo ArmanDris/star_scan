@@ -1,11 +1,6 @@
-import gleam/float
-import gleam/int
-import gleam/io
 import gleam/list
 import gleam/otp/task
 import gleam/result
-import glearray
-import internal/stopwatch
 import prng/random
 import prng/seed
 
@@ -46,65 +41,123 @@ pub fn parallel_reduce(
   list: List(a),
   combine_fn: fn(a, a) -> a,
 ) -> Result(a, String) {
-  let len_list = list.length(list)
-  use num_workers <- result.try(
-    int.square_root(len_list)
-    |> result.map(fn(n) { float.round(n) })
-    |> result.map_error(fn(_) { "Error while doing log calculation" }),
-  )
-  let split_list = split_lists(list, len_list / num_workers, [])
-  let split_list_time =
-    stopwatch.stopwatch(
-      fn() {
-        split_lists(list, len_list / num_workers, [])
-        Nil
-      },
-      stopwatch.Millisecond,
-    )
-  io.println("Split lists in " <> int.to_string(split_list_time))
-  helper_parallel_reduce(split_list, combine_fn)
+  helper_parallel_reduce(list, combine_fn)
 }
 
-pub fn split_lists(
+fn helper_parallel_reduce(
   list: List(a),
-  partition_size: Int,
-  accumulator: List(List(a)),
-) -> List(List(a)) {
-  // Splits list into partition_size'd partitions
-  // accumulator should start as an empty array []
+  combine_fn: fn(a, a) -> a,
+) -> Result(a, String) {
+  // Splits into two processes, each with half the list, until the
+  // list is smaller than max_segment_size.
   case list {
-    [] -> accumulator
-    [_, ..] -> {
-      let #(new_part, rest) = list.split(list, partition_size)
-      split_lists(rest, partition_size, list.prepend(accumulator, new_part))
+    [] -> Error("Cannot reduce on an empty list")
+    [a] -> Ok(a)
+    [_, _, ..] -> {
+      // Split in two
+      let #(first_half, second_half) = list.split(list, list.length(list) / 2)
+      let task_one =
+        task.async(fn() { helper_parallel_reduce(first_half, combine_fn) })
+      let task_two =
+        task.async(fn() { helper_parallel_reduce(second_half, combine_fn) })
+      let #(r_one, r_two) = task.try_await2(task_one, task_two, 1000)
+      use r_one_p <- result.try(
+        r_one
+        |> result.map_error(fn(_) {
+          "Reduce hit timeout before result was received"
+        }),
+      )
+      use r_one_p_p <- result.try(r_one_p)
+      use r_two_p <- result.try(
+        r_two
+        |> result.map_error(fn(_) {
+          "Reduce hit timeour before result was recieved"
+        }),
+      )
+      use r_two_p_p <- result.try(r_two_p)
+      Ok(combine_fn(r_one_p_p, r_two_p_p))
+    }
+  }
+  // case list_len > max_segment_size {
+  //   True -> {
+  //     // Split in two
+  //     let #(first_half, second_half) = list.split(list, list_len / 2)
+  //     let task_one =
+  //       task.async(fn() {
+  //         helper_parallel_reduce(first_half, list_len / 2, combine_fn)
+  //       })
+  //     let task_two =
+  //       task.async(fn() {
+  //         helper_parallel_reduce(second_half, list_len / 2, combine_fn)
+  //       })
+  //     let #(r_one, r_two) = task.try_await2(task_one, task_two, 1000)
+  //     use r_one_p <- result.try(
+  //       r_one
+  //       |> result.map_error(fn(_) {
+  //         "Reduce hit timeout before result was received"
+  //       }),
+  //     )
+  //     use r_one_p_p <- result.try(r_one_p)
+  //     use r_two_p <- result.try(
+  //       r_two
+  //       |> result.map_error(fn(_) {
+  //         "Reduce hit timeour before result was recieved"
+  //       }),
+  //     )
+  //     use r_two_p_p <- result.try(r_two_p)
+  //     Ok(combine_fn(r_one_p_p, r_two_p_p))
+  //   }
+  //   False -> {
+  //     sequential_reduce(list, combine_fn)
+  //   }
+  // }
+}
+
+pub fn hybrid_reduce(
+  list: List(a),
+  combine_fn: fn(a, a) -> a,
+) -> Result(a, String) {
+  helper_hybrid_reduce(list, combine_fn)
+}
+
+fn helper_hybrid_reduce(
+  list: List(a),
+  combine_fn: fn(a, a) -> a,
+) -> Result(a, String) {
+  let max_segment_size = 10_000
+  let list_len = list.length(list) / 2
+  case list_len > max_segment_size {
+    True -> {
+      // Split in two
+      let #(first_half, second_half) = list.split(list, list_len / 2)
+      let task_one =
+        task.async(fn() { helper_hybrid_reduce(first_half, combine_fn) })
+      let task_two =
+        task.async(fn() { helper_hybrid_reduce(second_half, combine_fn) })
+      let #(r_one, r_two) = task.try_await2(task_one, task_two, 1000)
+      use r_one_p <- result.try(
+        r_one
+        |> result.map_error(fn(_) {
+          "Reduce hit timeout before result was received"
+        }),
+      )
+      use r_one_p_p <- result.try(r_one_p)
+      use r_two_p <- result.try(
+        r_two
+        |> result.map_error(fn(_) {
+          "Reduce hit timeour before result was recieved"
+        }),
+      )
+      use r_two_p_p <- result.try(r_two_p)
+      Ok(combine_fn(r_one_p_p, r_two_p_p))
+    }
+    False -> {
+      sequential_reduce(list, combine_fn)
     }
   }
 }
 
-fn helper_parallel_reduce(lists: List(List(a)), combine_fn: fn(a, a) -> a) {
-  // This is a list with an ugly nested result
-  // List(Result(Result, String), String)
-  // The outer result is in case a task times out and the inner result
-  // is in case a sequential reduce fails
-  let list_of_task_and_reduce_results =
-    lists
-    |> list.map(fn(l) { task.async(fn() { sequential_reduce(l, combine_fn) }) })
-    |> task.try_await_all(1000)
-    |> result.all()
-    |> result.map_error(fn(_) {
-      "Hit timeout before receiving all tasks responses"
-    })
-
-  use task_results <- result.try(list_of_task_and_reduce_results)
-  // This will unpack the sequential reduce result, returning early if there was
-  // a reduce timeout
-  use task_values <- result.try(result.all(task_results))
-
-  // We finally combine the values our tasks gave us
-  sequential_reduce(task_values, combine_fn)
-}
-
-pub fn generate_array(n: Int) -> List(Int) {
+pub fn generate_list(n: Int) -> List(Int) {
   // Generates a list of n integers from 0 to 100
   let seed = seed.new(0)
   let generator: random.Generator(Int) = random.int(0, 100)

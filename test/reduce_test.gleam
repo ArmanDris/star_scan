@@ -1,5 +1,4 @@
 import gleam/int
-import gleam/result
 import gleam/string
 import gleeunit
 import gleeunit/should
@@ -7,15 +6,6 @@ import internal/reduce
 
 pub fn main() {
   gleeunit.main()
-}
-
-pub fn split_list_test() {
-  reduce.split_lists([5, 10, 4, 8, 5, 4], 2, [])
-  |> should.equal([[5, 4], [4, 8], [5, 10]])
-  reduce.split_lists([], 5, [])
-  |> should.equal([])
-  reduce.split_lists([7, 1, 8, 23, 76, 2, 8, 0], 5, [])
-  |> should.equal([[2, 8, 0], [7, 1, 8, 23, 76]])
 }
 
 pub fn sequential_reduce_test() {
