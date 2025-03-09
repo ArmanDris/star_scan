@@ -3,11 +3,15 @@ import gleam/int
 import gleam/io
 import gleam/result
 import internal/reduce
-import internal/scan
 import internal/stopwatch
 
-pub fn main() {
+pub fn benchmark_reduce() {
+  // Comapres the runtime of a sequential and parallel implementation 
+  // of reduce
+  io.println("Benchmarking reduce on a list of 100 million integers")
   let very_large_list = reduce.generate_list(100_000_000)
+
+  // Define a complex combine fn for benchmarking
   let combine_fn = fn(a, b) {
     int.power(a, int.to_float(b))
     |> result.lazy_unwrap(fn() { 1.0 })
@@ -27,7 +31,7 @@ pub fn main() {
       },
       stopwatch.Millisecond,
     )
-  io.println("Reduce time taken " <> int.to_string(time_taken) <> " ms")
+  io.println("Sequential reduce done in " <> int.to_string(time_taken) <> " ms")
   let hyrbid_reduce_time_taken =
     stopwatch.stopwatch(
       fn() {
@@ -37,6 +41,8 @@ pub fn main() {
       stopwatch.Millisecond,
     )
   io.println(
-    "Hybrid time taken " <> int.to_string(hyrbid_reduce_time_taken) <> " ms",
+    "Parallel reduce done in "
+    <> int.to_string(hyrbid_reduce_time_taken)
+    <> " ms",
   )
 }
