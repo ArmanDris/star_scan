@@ -1,5 +1,6 @@
 import gleeunit
 import gleeunit/should
+import internal/scan
 
 pub fn main() {
   gleeunit.main()

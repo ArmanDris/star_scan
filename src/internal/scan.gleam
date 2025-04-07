@@ -36,8 +36,11 @@ fn helper_sequential_scan(
 pub fn parallel_scan(
   list: List(a),
   combine_fn: fn(a, a) -> a,
+  identity_element: a,
 ) -> Result(List(a), String) {
-  let actor_state = ScanActorState(list, combine_fn)
+  let parent_subject = process.new_subject()
+  let actor_state =
+    ScanActorState(list, combine_fn, parent_subject, identity_element)
   use actor <- result.try(
     actor.start(actor_state, scan_actor)
     |> result.map_error(fn(_) { "Error starting actor" }),
@@ -51,7 +54,7 @@ pub fn parallel_scan(
     |> result.flatten,
   )
 
-  process.try_call(actor, fn(s) { RunScan(prev_value, s) }, 1000)
+  process.try_call(actor, fn(s) { RunScan(prev_value, s) }, 2000)
   |> result.map_error(fn(_) { "Error receiving scan result from actor" })
   |> result.flatten
 }
@@ -67,7 +70,12 @@ pub type Message(a) {
 // Our scan actor should be initialized with a list and a combine
 // function. These are the same for both its reduce and scan operation
 pub type ScanActorState(a) {
-  ScanActorState(list: List(a), combine_fn: fn(a, a) -> a)
+  ScanActorState(
+    list: List(a),
+    combine_fn: fn(a, a) -> a,
+    send_total_to: Subject(a),
+    identity_element: a,
+  )
 }
 
 pub fn scan_actor(
@@ -80,7 +88,6 @@ pub fn scan_actor(
     // so we just call that here
     RunReduce(reply_with) -> {
       process.send(reply_with, hybrid_reduce(state.list, state.combine_fn))
-      io.debug(state.list)
       actor.continue(state)
     }
     // When we receive this message we will recursively split the list
@@ -92,37 +99,66 @@ pub fn scan_actor(
           Ok(list.scan(state.list, prev_total, state.combine_fn))
         }
         False -> {
-          let #(first_half, second_half) = list.split(state.list, list_len / 2)
+          let #(left_half, right_half) = list.split(state.list, list_len / 2)
 
-          let state_one = ScanActorState(first_half, state.combine_fn)
-          let state_two = ScanActorState(second_half, state.combine_fn)
-          use actor_one <- result.try(
-            actor.start(state_one, scan_actor)
+          let this_actor_subject = process.new_subject()
+
+          let state_left =
+            ScanActorState(
+              left_half,
+              state.combine_fn,
+              this_actor_subject,
+              state.identity_element,
+            )
+          let state_right =
+            ScanActorState(
+              right_half,
+              state.combine_fn,
+              this_actor_subject,
+              state.identity_element,
+            )
+          use actor_left <- result.try(
+            actor.start(state_left, scan_actor)
             |> result.map_error(fn(_) {
               "Error starting child actor in scan_reduce"
             }),
           )
-          use actor_two <- result.try(
-            actor.start(state_two, scan_actor)
+          use actor_right <- result.try(
+            actor.start(state_right, scan_actor)
             |> result.map_error(fn(_) {
               "Error starting child actor in scan_reduce"
             }),
           )
-          use reduce_one <- result.try(process.call(actor_one, RunReduce, 1000))
-          use reduce_two <- result.try(process.call(actor_two, RunReduce, 1000))
-
-          use scan_one <- result.try(process.call(
-            actor_one,
-            fn(s) { RunScan(reduce_one, s) },
+          use reduce_left <- result.try(process.call(
+            actor_left,
+            RunReduce,
             1000,
           ))
-          use scan_two <- result.try(process.call(
-            actor_two,
-            fn(s) { RunScan(reduce_two, s) },
+          use reduce_right <- result.try(process.call(
+            actor_right,
+            RunReduce,
             1000,
           ))
 
-          Ok(list.append(scan_one, scan_two))
+          process.send(state.send_total_to, reduce_right)
+
+          use left_node_prev_total <- result.try(
+            process.receive(state.send_total_to, 1000)
+            |> result.try_recover(fn(_) { Ok(state.identity_element) }),
+          )
+
+          use scan_left <- result.try(process.call(
+            actor_left,
+            fn(s) { RunScan(left_node_prev_total, s) },
+            1000,
+          ))
+          use scan_right <- result.try(process.call(
+            actor_right,
+            fn(s) { RunScan(reduce_left, s) },
+            1000,
+          ))
+
+          Ok(list.append(scan_left, scan_right))
         }
       }
       process.send(reply_with, result)
