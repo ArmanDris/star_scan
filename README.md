@@ -20,8 +20,6 @@ pub fn main() {
 }
 ```
 
-Further documentation can be found at <https://hexdocs.pm/star_scan>.
-
 ## Development
 
 ```sh
