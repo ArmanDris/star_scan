@@ -5,6 +5,14 @@ A parallel implementation of the scan function with a `O(log n)` runtime.
 ## Example:
 
 ```gleam
+import gleam/float
+import gleam/int
+import gleam/io
+import gleam/result
+import internal/reduce
+import internal/scan
+import internal/stopwatch
+
 pub fn main() {
   let very_large_list = reduce.generate_list(20_000)
 
