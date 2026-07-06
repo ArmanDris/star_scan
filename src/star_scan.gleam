@@ -1,4 +1,4 @@
-import gleam/float
+import gleam/erlang/process
 import gleam/int
 import gleam/io
 import gleam/result
@@ -7,18 +7,11 @@ import internal/scan
 import internal/stopwatch
 
 pub fn main() {
-  let very_large_list = reduce.generate_list(20_000)
+  let very_large_list = reduce.generate_list(500)
 
   let expensive_combine_fn = fn(a, b) {
-    int.power(a, int.to_float(b))
-    |> result.lazy_unwrap(fn() { 1.0 })
-    |> float.logarithm()
-    |> result.lazy_unwrap(fn() { 1.0 })
-    |> fn(e_base_log) {
-      e_base_log
-      /. result.lazy_unwrap(float.logarithm(int.to_float(b)), fn() { 1.0 })
-    }
-    |> float.round()
+    process.sleep(50)
+    int.add(a, b)
   }
 
   let sequential_scan_time =
