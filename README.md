@@ -1,6 +1,6 @@
 # star_scan
 
-A multi-threaded scanning function implemented using the [BEAM VM](https://en.wikipedia.org/wiki/BEAM_(Erlang_virtual_machine)) with [Gleam](https://gleam.run/).
+A parallel implementation of the scan function with a `O(log n)` runtime.
 
 [![Package Version](https://img.shields.io/hexpm/v/star_scan)](https://hex.pm/packages/star_scan)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/star_scan/)
